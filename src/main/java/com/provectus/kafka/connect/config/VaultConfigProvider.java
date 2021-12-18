@@ -3,6 +3,7 @@ package com.provectus.kafka.connect.config;
 import com.bettercloud.vault.Vault;
 import com.bettercloud.vault.VaultConfig;
 import com.bettercloud.vault.VaultException;
+import com.bettercloud.vault.api.Auth;
 import com.bettercloud.vault.response.AuthResponse;
 import com.bettercloud.vault.response.LookupResponse;
 import org.apache.kafka.common.config.AbstractConfig;
@@ -175,15 +176,24 @@ public class VaultConfigProvider implements ConfigProvider {
                     .build();
 
             Vault vault = new Vault(vaultConfig);
+            LOGGER.info("DONE creating Vault");
             tokenMetadata.set(new TokenMetadata(getTokenExpirationTime(vault), token));
+            LOGGER.info("DONE setting token metadata");
             return vault;
         } catch (VaultException e) {
+            LOGGER.error("Vault Exception", e);
             throw new RuntimeException(e);
+        } catch (Exception e) {
+            LOGGER.error("Exception bulding vault", e);
+            throw e;
         }
     }
 
     private LocalDateTime getTokenExpirationTime(Vault vault) throws VaultException {
-        LookupResponse lookupResponse = vault.auth().lookupSelf();
+        Auth auth = vault.auth();
+        LOGGER.info("DONE auth");
+        LookupResponse lookupResponse = auth.lookupSelf();
+        LOGGER.info("DONE lookupSelf");
         long creationTtlInSec = lookupResponse.getCreationTTL() != 0L ? lookupResponse.getCreationTTL() : lookupResponse.getTTL();
         return LocalDateTime.now().plusSeconds(creationTtlInSec - hardRenewThreshold);
     }
