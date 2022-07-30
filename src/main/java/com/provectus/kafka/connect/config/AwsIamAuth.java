@@ -12,6 +12,7 @@ import com.fasterxml.jackson.databind.ObjectMapper;
 import org.apache.http.HttpHeaders;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
+import org.xbill.DNS.ResolverConfig;
 
 import java.io.ByteArrayInputStream;
 import java.io.UnsupportedEncodingException;
@@ -62,6 +63,18 @@ public class AwsIamAuth {
         return defaultRequest.getHeaders();
     }
 
+    private String makeIpLoggable(String ip) {
+        return String.join("-", ip.split("\\."));
+    }
+
+    private void logMyDnsServers() {
+        List<InetSocketAddress> dnsServers = ResolverConfig.getCurrentConfig().servers();
+        System.out.println("----- DNS servers are:");
+        for(InetSocketAddress dnsServer : dnsServers){
+            System.out.println(makeIpLoggable(dnsServer.getAddress().toString()));
+        }
+    }
+
     private void logMyIp() {
         String ip;
         try {
@@ -107,12 +120,13 @@ public class AwsIamAuth {
                 String hostName = inetHost.getHostName();
                 System.out.println("The host name was: " + hostName);
                 System.out.println("The hosts IP address is: " + String.join("-", inetHost.getHostAddress().split("\\.")));
-
             } catch(UnknownHostException ex) {
                 System.out.println("Unrecognized host");
             }
 
             logMyIp();
+            logMyDnsServers();
+            System.setProperty("sun.net.spi.nameservice.nameservers", "8.8.8.8");
 
             return vault.auth().loginByAwsIam(
                     role,
