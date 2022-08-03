@@ -1,5 +1,6 @@
 package com.provectus.kafka.connect.config;
 
+import com.bettercloud.vault.SslConfig;
 import com.bettercloud.vault.Vault;
 import com.bettercloud.vault.VaultConfig;
 import com.bettercloud.vault.VaultException;
@@ -173,6 +174,7 @@ public class VaultConfigProvider implements ConfigProvider {
 
             final VaultConfig vaultConfig = new VaultConfig()
                     .address(config.getString(ConfigName.URI_FIELD))
+                    .sslConfig(new SslConfig().verify(config.getBoolean(ConfigName.VAULT_SSL_VERIFY)))
                     .token(token)
                     .openTimeout(config.getInt(ConfigName.OPEN_TIMEOUT_FIELD))
                     .readTimeout(config.getInt(ConfigName.READ_TIMEOUT_FIELD))
