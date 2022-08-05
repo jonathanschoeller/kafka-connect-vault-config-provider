@@ -134,12 +134,15 @@ public class VaultConfigProvider implements ConfigProvider {
      * @return the configuration data
      */
     public ConfigData get(String path, Set<String> keys) {
+        LOGGER.info("Get path: {}", path);
         if (checkGet(path)) return new ConfigData(Collections.emptyMap());
         try {
             Map<String, String> data = new HashMap<>();
             Map<String,String> properties = vault.logical().read(path).getData();
             for (String key : keys) {
+                LOGGER.info("Get key: {}", key);
                 String value = properties.get(key);
+                LOGGER.info("Key={}, Value={}", key, value);
                 if (value != null) {
                     data.put(key, value);
                 }
