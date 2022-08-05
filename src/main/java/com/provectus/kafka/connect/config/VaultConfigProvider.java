@@ -139,6 +139,11 @@ public class VaultConfigProvider implements ConfigProvider {
         try {
             Map<String, String> data = new HashMap<>();
             Map<String,String> properties = vault.logical().read(path).getData();
+
+            for (Map.Entry<String,String> entry : properties.entrySet())
+                LOGGER.info("Key = " + entry.getKey() +
+                        ", Value = " + entry.getValue());
+
             for (String key : keys) {
                 LOGGER.info("Get key: {}", key);
                 String value = properties.get(key);
