@@ -220,9 +220,13 @@ public class VaultConfigProvider implements ConfigProvider {
                     .token(token)
                     .openTimeout(config.getInt(ConfigName.OPEN_TIMEOUT_FIELD))
                     .readTimeout(config.getInt(ConfigName.READ_TIMEOUT_FIELD))
+                    .engineVersion(1)
                     .build();
 
             Vault vault = new Vault(vaultConfig);
+            Map<String, String> engineVersions = vault.getSecretEngineVersions();
+            LOGGER.info("ENGINE VERSIONS: {}", engineVersions.keySet().stream().map(key -> key + "=" + engineVersions.get(key)).collect(Collectors.joining(", ", "{", "}")));
+
             LocalDateTime tokenExpirationTime = getTokenExpirationTime(vault);
             LOGGER.info("Token expiration time is {}", tokenExpirationTime);
             tokenMetadata.set(new TokenMetadata(tokenExpirationTime, token));
