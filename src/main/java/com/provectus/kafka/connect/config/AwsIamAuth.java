@@ -84,6 +84,7 @@ public class AwsIamAuth {
             VaultConfig vaultConfig = new VaultConfig()
                     .address(vaultAddress)
                     .sslConfig(new SslConfig().verify(this.sslVerify))
+                    .engineVersion(1)
                     .build();
 
             Vault vault = new Vault(vaultConfig);
