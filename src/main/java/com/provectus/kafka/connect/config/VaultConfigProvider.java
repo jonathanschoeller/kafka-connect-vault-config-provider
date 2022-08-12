@@ -224,8 +224,6 @@ public class VaultConfigProvider implements ConfigProvider {
                     .build();
 
             Vault vault = new Vault(vaultConfig);
-            Map<String, String> engineVersions = vault.getSecretEngineVersions();
-            LOGGER.info("ENGINE VERSIONS: {}", engineVersions.keySet().stream().map(key -> key + "=" + engineVersions.get(key)).collect(Collectors.joining(", ", "{", "}")));
 
             LocalDateTime tokenExpirationTime = getTokenExpirationTime(vault);
             LOGGER.info("Token expiration time is {}", tokenExpirationTime);
