@@ -38,6 +38,7 @@ public class VaultConfigProvider implements ConfigProvider {
         String TOKEN_MIN_TTL = "tokenminttl";
         String TOKEN_HARD_RENEW_THRESHOLD = "tokenrenewthreshold";
         String VAULT_SSL_VERIFY = "sslverify";
+        String SECRET_ENCODING = "secretencoding";
     }
 
     private Vault vault;
@@ -65,7 +66,9 @@ public class VaultConfigProvider implements ConfigProvider {
             .define(ConfigName.TOKEN_HARD_RENEW_THRESHOLD, ConfigDef.Type.INT, 5, ConfigDef.Importance.HIGH,
                     "Field config for vault token hard renew threshold in seconds")
             .define(ConfigName.VAULT_SSL_VERIFY, ConfigDef.Type.BOOLEAN, true, ConfigDef.Importance.MEDIUM,
-                    "Field config for vault server SSL verification.");
+                    "Field config for vault server SSL verification.")
+            .define(ConfigName.SECRET_ENCODING, ConfigDef.Type.STRING, null, ConfigDef.Importance.MEDIUM,
+                    "Field config for encoding of the secret.");
 
 
 
@@ -158,6 +161,9 @@ public class VaultConfigProvider implements ConfigProvider {
     public ConfigData get(String path, Set<String> keys) {
         LOGGER.info("Get path: {}", path);
         if (checkGet(path)) return new ConfigData(Collections.emptyMap());
+
+        String encoding = config.getString(ConfigName.SECRET_ENCODING);
+
         try {
             Map<String, String> data = new HashMap<>();
             Map<String,String> properties = vault.logical().read(path).getData();
@@ -176,6 +182,12 @@ public class VaultConfigProvider implements ConfigProvider {
                 String value = properties.get(key);
                 LOGGER.info("Key={}, Value={}", key, value);
                 LOGGER.info("Value length is {}", value != null ? value.length() : 0);
+
+                if (encoding == "BASE64") {
+                    value = new String(Base64.getDecoder().decode(value));
+                    LOGGER.info("Key={}, Decoded Value={}", key, value);
+                }
+
                 if (value != null) {
                     data.put(key, value);
                 }
