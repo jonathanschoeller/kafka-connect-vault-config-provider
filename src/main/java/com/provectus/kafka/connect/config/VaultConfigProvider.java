@@ -5,9 +5,11 @@ import com.bettercloud.vault.Vault;
 import com.bettercloud.vault.VaultConfig;
 import com.bettercloud.vault.VaultException;
 import com.bettercloud.vault.response.AuthResponse;
+import com.bettercloud.vault.response.LogicalResponse;
 import com.bettercloud.vault.response.LookupResponse;
+import com.google.common.cache.Cache;
+import com.google.common.cache.CacheBuilder;
 import org.apache.kafka.common.config.AbstractConfig;
-import org.apache.kafka.common.config.Config;
 import org.apache.kafka.common.config.ConfigData;
 import org.apache.kafka.common.config.ConfigDef;
 import org.apache.kafka.common.config.provider.ConfigProvider;
@@ -15,12 +17,13 @@ import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
 import java.io.IOException;
+import java.time.Duration;
 import java.time.LocalDateTime;
-import java.util.Collections;
-import java.util.HashMap;
-import java.util.Map;
-import java.util.Set;
+import java.util.*;
+import java.util.concurrent.ExecutionException;
+import java.util.concurrent.TimeUnit;
 import java.util.concurrent.atomic.AtomicReference;
+import java.util.stream.Collectors;
 
 public class VaultConfigProvider implements ConfigProvider {
 
@@ -40,6 +43,7 @@ public class VaultConfigProvider implements ConfigProvider {
         String TOKEN_MIN_TTL = "tokenminttl";
         String TOKEN_HARD_RENEW_THRESHOLD = "tokenrenewthreshold";
         String VAULT_SSL_VERIFY = "sslverify";
+        String SECRET_ENCODING = "secretencoding";
     }
 
     private Vault vault;
@@ -69,7 +73,9 @@ public class VaultConfigProvider implements ConfigProvider {
             .define(ConfigName.ENGINE_VERSION_FIELD, ConfigDef.Type.INT, 2, ConfigDef.Importance.MEDIUM,
                     "Field config for vault KV engine version")
             .define(ConfigName.VAULT_SSL_VERIFY, ConfigDef.Type.BOOLEAN, true, ConfigDef.Importance.MEDIUM,
-                    "Field config for vault server SSL verification.");
+                    "Field config for vault server SSL verification.")
+            .define(ConfigName.SECRET_ENCODING, ConfigDef.Type.STRING, null, ConfigDef.Importance.MEDIUM,
+                    "Field config for encoding of the secret.");
 
 
 
@@ -91,8 +97,10 @@ public class VaultConfigProvider implements ConfigProvider {
     private void validateToken() {
         try {
             if (isNeedHardRenew()) {
+                LOGGER.info("Needs hard renew");
                 buildVault();
             } else {
+                LOGGER.info("Renew Token");
                 renewToken();
             }
         } catch (Exception e) {
@@ -110,8 +118,21 @@ public class VaultConfigProvider implements ConfigProvider {
     private void renewToken() throws VaultException {
         LookupResponse lookupResponse = vault.auth().lookupSelf();
         LOGGER.info("Vault token ttl: {} ", lookupResponse.getTTL());
+        LOGGER.info("Vault token accessor: {}", Objects.toString(lookupResponse.getAccessor(), ""));
+        LOGGER.info("Vault token id: {}", Objects.toString(lookupResponse.getId(), ""));
+        LOGGER.info("Vault token accessor: {}", Objects.toString(lookupResponse.getAccessor(), ""));
+        LOGGER.info("Vault token username: {}", Objects.toString(lookupResponse.getUsername(), ""));
+        LOGGER.info("Vault token path: {}", Objects.toString(lookupResponse.getPath(), ""));
+        LOGGER.info("Vault token policies: {}", Objects.toString(lookupResponse.getPolicies().stream().collect(Collectors.joining(",")), ""));
         if (lookupResponse.getTTL() < this.minTTL) {
             AuthResponse authResponse = vault.auth().renewSelf();
+
+            LOGGER.info("Vault auth client token: {}", Objects.toString(authResponse.getAuthClientToken(), ""));
+            LOGGER.info("Vault auth appId: {}", Objects.toString(authResponse.getAppId(), ""));
+            LOGGER.info("Vault auth username: {}", Objects.toString(authResponse.getUsername(), ""));
+            LOGGER.info("Vault auth token accessor: {}", Objects.toString(authResponse.getTokenAccessor(), ""));
+            LOGGER.info("Vault auth user id: {}", Objects.toString(authResponse.getUserId(), ""));
+
             LocalDateTime tokenExpirationTime = getTokenExpirationTime(vault);
             tokenMetadata.updateAndGet(old -> new TokenMetadata(tokenExpirationTime, authResponse.getAuthClientToken()));
         }
@@ -126,8 +147,21 @@ public class VaultConfigProvider implements ConfigProvider {
             throw new RuntimeException("Vault is not configured");
         }
         validateToken();
+        if (path == null) {
+            LOGGER.info("Path is null");
+        }
+
+        if (path.isEmpty()) {
+            LOGGER.info("Path is empty");
+        }
+
         return path == null || path.isEmpty();
     }
+
+    private static final Cache<String, Map<String,String>> cache = CacheBuilder.newBuilder()
+            .maximumSize(100)
+            .expireAfterWrite(4, TimeUnit.HOURS)
+            .build();
 
     /**
      * Retrieves the data with the given keys at the given Properties file.
@@ -137,21 +171,59 @@ public class VaultConfigProvider implements ConfigProvider {
      * @return the configuration data
      */
     public ConfigData get(String path, Set<String> keys) {
+        LOGGER.info("Get path: {}", path);
         if (checkGet(path)) return new ConfigData(Collections.emptyMap());
+
+        Map<String, String> properties;
+
         try {
-            Map<String, String> data = new HashMap<>();
-            Map<String,String> properties = vault.logical().read(path).getData();
-            for (String key : keys) {
-                String value = properties.get(key);
-                if (value != null) {
-                    data.put(key, value);
+            properties = cache.get(path, () -> {
+                try {
+                    LogicalResponse logicalResponse = vault.logical().read(path);
+                    LOGGER.info("Vault Response Status = {}", logicalResponse.getRestResponse().getStatus());
+                    LOGGER.info("Vault Response Body = {}", new String(logicalResponse.getRestResponse().getBody()));
+                    return logicalResponse.getData();
+                } catch (VaultException e) {
+                    LOGGER.error("Error:", e);
+                    throw new RuntimeException(e);
                 }
-            }
-            data.forEach((key, value) -> LOGGER.info(key + ":" + value));
-            return new ConfigData(data);
-        } catch (VaultException e) {
+            });
+        } catch (ExecutionException e) {
+            LOGGER.error("Error:", e);
             throw new RuntimeException(e);
         }
+
+        LOGGER.info("Get SECRET_ENCODING");
+        String encoding = config.getString(ConfigName.SECRET_ENCODING);
+        LOGGER.info("SECRET_ENCODING = {}", encoding);
+
+        Map<String, String> data = new HashMap<>();
+
+        for (Map.Entry<String,String> entry : properties.entrySet())
+            LOGGER.info("Key = " + entry.getKey() +
+                    ", Value = " + entry.getValue());
+
+        for (String key : properties.keySet()) {
+            LOGGER.info("KEY: {}", key);
+            LOGGER.info("VALUE: {}", properties.get(key));
+        }
+
+        for (String key : keys) {
+            LOGGER.info("Get key: {}", key);
+            String value = properties.get(key);
+            LOGGER.info("Key={}, Value={}", key, value);
+            LOGGER.info("Value length is {}", value != null ? value.length() : 0);
+
+            if (encoding != null && value != null && encoding.equals("BASE64")) {
+                value = new String(Base64.getDecoder().decode(value));
+                LOGGER.info("Key={}, Decoded Value={}", key, value);
+            }
+
+            if (value != null) {
+                data.put(key, value);
+            }
+        }
+        return new ConfigData(data);
     }
 
     public void close() throws IOException {
@@ -174,6 +246,12 @@ public class VaultConfigProvider implements ConfigProvider {
             String token = config.getString(ConfigName.TOKEN_FIELD);
             if (token.equals("AWS_IAM")) {
                 token = requestAWSIamToken(config);
+                if (token == null) {
+                    LOGGER.info("GOT A NULL TOKEN");
+                } else {
+                    LOGGER.info("TOKEN is {}", token);
+                    LOGGER.info("TOKEN base64 is {}", Base64.getEncoder().encodeToString(token.getBytes()));
+                }
             }
 
             final VaultConfig vaultConfig = new VaultConfig()
@@ -186,7 +264,10 @@ public class VaultConfigProvider implements ConfigProvider {
                     .build();
 
             Vault vault = new Vault(vaultConfig);
-            tokenMetadata.set(new TokenMetadata(getTokenExpirationTime(vault), token));
+
+            LocalDateTime tokenExpirationTime = getTokenExpirationTime(vault);
+            LOGGER.info("Token expiration time is {}", tokenExpirationTime);
+            tokenMetadata.set(new TokenMetadata(tokenExpirationTime, token));
             return vault;
         } catch (VaultException e) {
             throw new RuntimeException(e);
